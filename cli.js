@@ -184,7 +184,9 @@ program
 
       fs.readFile(routeFile, 'utf8', (err, data) => {
         // Encontrar a posição do export default
-        const posicaoExportDefault = data.trim().lastIndexOf('export default');
+        const posicaoExportDefault = data
+          .trim()
+          .lastIndexOf('export default router;');
 
         console.log(posicaoExportDefault);
         if (posicaoExportDefault === -1) {
