@@ -1,0 +1,15 @@
+.idea/
+.vscode/
+node_modules/
+build/
+temp/
+coverage
+build
+dist
+.nyc_output/
+report/
+.DS_Store
+.env
+.env.test
+.env.local
+.env.ignore

@@ -1,0 +1,29 @@
+{
+  "name": "path-generator",
+  "version": "1.0.0",
+  "main": "cli.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "node cli.js cr && npm run format",
+    "lint": "eslint . --ext .ts",
+    "format": "eslint --fix .",
+    "dev": "ts-node-dev -r tsconfig-paths/register  --inspect --respawn --transpile-only --ignore-watch node_modules src/server.ts"
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "express": "^4.17.1",
+    "inquirer": "3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@typescript-eslint/eslint-plugin": "^5.4.0",
+    "@typescript-eslint/parser": "^5.4.0",
+    "eslint": "^8.3.0",
+    "eslint-config-prettier": "6.15.0",
+    "eslint-plugin-prettier": "3.2.0",
+    "prettier": "^2.4.1",
+    "typescript": "4.5.2",
+    "ts-node-dev": "^1.1.8",
+    "tsconfig-paths": "^3.12.0"
+  }
+}
