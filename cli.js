@@ -2,6 +2,7 @@ const { program } = require('commander');
 const fs = require('fs');
 const path = require('path');
 const inquirer = require('inquirer');
+const { extractStringImport } = require('./str');
 
 // Função para capitalizar a primeira letra de uma string
 function capitalize(str) {
@@ -172,10 +173,55 @@ program
           name: 'tipo',
           message: 'Selecione o tipo da rota:',
           choices: ['POST', 'GET', 'PUT', 'DELETE']
+        },
+        {
+          type: 'input',
+          name: 'parametros',
+          message:
+            'Informe os parâmetros da rota (se houver, separados por vírgula):'
+        },
+        {
+          type: 'input',
+          name: 'body',
+          message:
+            'Informe o modelo de body da rota (se houver, separados por vírgula):'
         }
       ];
 
-      const { rotaName, tipo } = await inquirer.prompt(perguntaRotaName);
+      const { rotaName, tipo, parametros, body } = await inquirer.prompt(
+        perguntaRotaName
+      );
+
+      let fieldDefinitions = {};
+
+      if (body) {
+        fieldDefinitions = `{${body}}`;
+      }
+
+      let parameters = parametros ? parametros.split(',') : [];
+
+      let obj = {};
+
+      if (parameters.length > 0) {
+        parameters.forEach((param, index) => {
+          const [name, type] = param.split(':');
+
+          obj = {
+            name,
+            type
+          };
+        });
+
+        parameters = [obj];
+      }
+
+      console.log(obj);
+
+      const hasParams = parameters.length > 0;
+      const lineParams = hasParams ? `${obj.name}` : '';
+      const lineParamsType = hasParams ? `${obj.type}` : '';
+
+      const lineBody = body ? `body` : '';
 
       const routeFile = path.join(
         __dirname,
@@ -183,37 +229,40 @@ program
       );
 
       fs.readFile(routeFile, 'utf8', (err, data) => {
-        // Encontrar a posição do export default
-        const posicaoExportDefault = data
-          .trim()
-          .lastIndexOf('export default router;');
-
-        console.log(posicaoExportDefault);
-        if (posicaoExportDefault === -1) {
-          console.error(
-            'Declaração "export default" não encontrada no arquivo.'
-          );
-          return;
-        }
-
         const ultimaPosicaoImport = data.lastIndexOf('import');
 
         const teste =
           data.slice(0, ultimaPosicaoImport) +
-          `import { ${rotaPai}, ${rotaName} } from './${rotaPai}';`;
+          `import { ${extractStringImport(
+            data,
+            `./${rotaPai}`
+          )} ${useCaseName}Controller } from './${rotaPai}';`;
 
         data =
           teste + '\n' + data.substring(data.lastIndexOf('const'), data.length);
 
         // Extrair a parte do texto antes do export default
-        const textoAntes = data.substring(0, posicaoExportDefault);
+        const textoAntes = data.substring(
+          0,
+          data.lastIndexOf('export default router;')
+        );
 
+        const isSameRoute = rotaName === rotaPai;
+        let nameRoute = `/${rotaName}`;
+
+        if (isSameRoute) {
+          if (parameters.length > 0) {
+            nameRoute = `/:${obj.name}`;
+          } else {
+            nameRoute = '/';
+          }
+        }
         const content = `
-    router.${tipo.toLowerCase()}('/${rotaName}',${rotaName})
+    router.${tipo.toLowerCase()}('${nameRoute}',${useCaseName}Controller)
   `;
         // Adicionar conteúdo antes do export default
         const novoConteudo = `${textoAntes}${content}\n\n${data.substring(
-          posicaoExportDefault
+          data.lastIndexOf('export default router;')
         )}`;
 
         fs.writeFile(routeFile, novoConteudo, 'utf8', (err) => {
@@ -241,9 +290,11 @@ program
         }
 
         const contentController = `
-      export const ${rotaName} = async (req: Request, res: Response) => {
+      export const ${useCaseName}Controller = async (req: Request, res: Response) => {
+        ${hasParams ? `const {${obj.name}} = req.params` : ''}
 
-        return res.json(await ${useCaseName}Port());
+        ${body ? `const {body} = req` : ''}
+        return res.json(await ${useCaseName}Port(${lineParams}${lineBody}));
       };
 
       `;
@@ -253,7 +304,10 @@ program
 
         const testeController =
           controllerData.slice(0, ultimaPosicaoImportController) +
-          `import { ${rotaPai}Port, ${useCaseName}Port } from '@ports/usecases/${rotaPai}';`;
+          `import { ${extractStringImport(
+            controllerData,
+            `@ports/usecases/${rotaPai}`
+          )} ${useCaseName}Port } from '@ports/usecases/${rotaPai}';`;
 
         controllerData =
           testeController +
@@ -303,16 +357,27 @@ program
         const ultimaPosicaoImportPort = portData.lastIndexOf('import');
 
         const contentPort = `
-        export const ${useCaseName}Port = async () => {
+        ${body ? `interface ${useCaseName}Type${fieldDefinitions}` : ''}
+        export const ${useCaseName}Port = async ( ${
+          parameters.length > 0 ? `${lineParams}:${lineParamsType}` : ''
+        }  
+        ${body ? `data:${useCaseName}Type` : ''} 
+        
+        ) => {
   
-            return await  ${useCaseName}UseCase();
+            return await  ${useCaseName}UseCase( ${lineParams}${
+          body ? 'data' : ''
+        });
         };
   
         `;
 
         const testePort =
           portData.slice(0, ultimaPosicaoImportPort) +
-          `import { ${rotaPai}UseCase, ${useCaseName}UseCase } from '@usecases/${rotaPai}';`;
+          `import { ${extractStringImport(
+            portData,
+            `@usecases/${rotaPai}`
+          )} ${useCaseName}UseCase } from '@usecases/${rotaPai}';`;
 
         portData =
           testePort +
@@ -350,7 +415,13 @@ program
         }
 
         const contentUseCase = `
-        export const ${useCaseName}UseCase = async () => {
+        ${body ? `interface ${useCaseName}Type${fieldDefinitions}` : ''}
+        export const ${useCaseName}UseCase = async (${
+          parameters.length > 0 ? `${lineParams}:${lineParamsType}` : ''
+        }
+        ${body ? `data:${useCaseName}Type` : ''} 
+
+         ) => {
   
           return await Promise.resolve("OLA NOVA ROTA ${rotaName}");
         };
