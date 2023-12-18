@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const inquirer = require('inquirer');
 const { extractStringImport } = require('./str');
+const { writeFileAsync, readFileAsync } = require('./file');
 
 // Função para capitalizar a primeira letra de uma string
 function capitalize(str) {
@@ -203,7 +204,7 @@ program
       let obj = {};
 
       if (parameters.length > 0) {
-        parameters.forEach((param, index) => {
+        parameters.forEach((param) => {
           const [name, type] = param.split(':');
 
           obj = {
@@ -214,8 +215,6 @@ program
 
         parameters = [obj];
       }
-
-      console.log(obj);
 
       const hasParams = parameters.length > 0;
       const lineParams = hasParams ? `${obj.name}` : '';
@@ -228,197 +227,184 @@ program
         `src/providers/express/routes/${rotaPai}/router.ts`
       );
 
-      fs.readFile(routeFile, 'utf8', (err, data) => {
-        const ultimaPosicaoImport = data.lastIndexOf('import');
+      let routeFileContent = await readFileAsync(routeFile);
 
-        const teste =
-          data.slice(0, ultimaPosicaoImport) +
-          `import { ${extractStringImport(
-            data,
-            `./${rotaPai}`
-          )} ${useCaseName}Controller } from './${rotaPai}';`;
+      const ultimaPosicaoImport = routeFileContent.lastIndexOf('import');
 
-        data =
-          teste + '\n' + data.substring(data.lastIndexOf('const'), data.length);
+      const teste =
+        routeFileContent.slice(0, ultimaPosicaoImport) +
+        `import { ${extractStringImport(
+          routeFileContent,
+          `./${rotaPai}`
+        )} ${useCaseName}Controller } from './${rotaPai}';`;
 
-        // Extrair a parte do texto antes do export default
-        const textoAntes = data.substring(
-          0,
-          data.lastIndexOf('export default router;')
+      routeFileContent =
+        teste +
+        '\n' +
+        routeFileContent.substring(
+          routeFileContent.lastIndexOf('const'),
+          routeFileContent.length
         );
 
-        const isSameRoute = rotaName === rotaPai;
-        let nameRoute = `/${rotaName}`;
+      // Extrair a parte do texto antes do export default
+      const textoAntes = routeFileContent.substring(
+        0,
+        routeFileContent.lastIndexOf('export default router;')
+      );
 
-        if (isSameRoute) {
-          if (parameters.length > 0) {
-            nameRoute = `/:${obj.name}`;
-          } else {
-            nameRoute = '/';
-          }
+      const isSameRoute = rotaName === rotaPai;
+      let nameRoute = `/${rotaName}`;
+
+      if (isSameRoute) {
+        if (parameters.length > 0) {
+          nameRoute = `/:${obj.name}`;
+        } else {
+          nameRoute = '/';
         }
-        const content = `
-    router.${tipo.toLowerCase()}('${nameRoute}',${useCaseName}Controller)
-  `;
-        // Adicionar conteúdo antes do export default
-        const novoConteudo = `${textoAntes}${content}\n\n${data.substring(
-          data.lastIndexOf('export default router;')
-        )}`;
+      }
+      const content = `
+  router.${tipo.toLowerCase()}('${nameRoute}',${useCaseName}Controller)
+`;
+      // Adicionar conteúdo antes do export default
+      const novoConteudo = `${textoAntes}${content}\n\n${routeFileContent.substring(
+        routeFileContent.lastIndexOf('export default router;')
+      )}`;
 
-        fs.writeFile(routeFile, novoConteudo, 'utf8', (err) => {
-          if (err) {
-            console.error(`Erro ao escrever no arquivo ${routeFile}: ${err}`);
-          } else {
-            console.log(
-              `Conteúdo adicionado com sucesso ao arquivo ${routeFile}.`
-            );
-          }
-        });
-      });
+      await writeFileAsync(routeFile, novoConteudo);
 
       const arquivoController = `src/providers/express/routes/${rotaPai}/${rotaPai}.ts`;
 
-      fs.readFile(arquivoController, 'utf8', (err, controllerData) => {
-        console.log(controllerData);
+      let controllerData = await readFileAsync(arquivoController);
+      // Encontrar a posição do export default
+      const posicaoLastItem = controllerData.indexOf('};');
 
-        // Encontrar a posição do export default
-        const posicaoLastItem = controllerData.indexOf('};');
+      if (posicaoLastItem === -1) {
+        console.error('Declaração "last item" não encontrada no arquivo.');
+        return;
+      }
 
-        if (posicaoLastItem === -1) {
-          console.error('Declaração "last item" não encontrada no arquivo.');
-          return;
-        }
+      const contentController = `
+ export const ${useCaseName}Controller = async (req: Request, res: Response) => {
+   ${hasParams ? `const {${obj.name}} = req.params` : ''}
 
-        const contentController = `
-      export const ${useCaseName}Controller = async (req: Request, res: Response) => {
-        ${hasParams ? `const {${obj.name}} = req.params` : ''}
+   ${body ? `const {body} = req` : ''}
+   return res.json(await ${useCaseName}Port(${lineParams}${lineBody}));
+ };
 
-        ${body ? `const {body} = req` : ''}
-        return res.json(await ${useCaseName}Port(${lineParams}${lineBody}));
-      };
+ `;
 
-      `;
+      const ultimaPosicaoImportController =
+        controllerData.lastIndexOf('import');
 
-        const ultimaPosicaoImportController =
-          controllerData.lastIndexOf('import');
+      const testeController =
+        controllerData.slice(0, ultimaPosicaoImportController) +
+        `import { ${extractStringImport(
+          controllerData,
+          `@ports/usecases/${rotaPai}`
+        )} ${useCaseName}Port } from '@ports/usecases/${rotaPai}';`;
 
-        const testeController =
-          controllerData.slice(0, ultimaPosicaoImportController) +
-          `import { ${extractStringImport(
-            controllerData,
-            `@ports/usecases/${rotaPai}`
-          )} ${useCaseName}Port } from '@ports/usecases/${rotaPai}';`;
-
-        controllerData =
-          testeController +
-          '\n' +
-          controllerData.substring(
-            controllerData.indexOf('export'),
-            controllerData.length
-          );
-        const novoConteudoController = `${controllerData.substring(
-          0,
-          controllerData.lastIndexOf('};')
-        )}};${contentController}`;
-
-        fs.writeFile(
-          arquivoController,
-          novoConteudoController,
-          'utf8',
-          (err) => {
-            if (err) {
-              console.error(
-                `Erro ao escrever no arquivo ${arquivoController}: ${err}`
-              );
-            } else {
-              console.log(
-                `Conteúdo adicionado com sucesso ao arquivo ${arquivoController}.`
-              );
-            }
-          }
+      controllerData =
+        testeController +
+        '\n' +
+        controllerData.substring(
+          controllerData.indexOf('export'),
+          controllerData.length
         );
-      });
+      const novoConteudoController = `${controllerData.substring(
+        0,
+        controllerData.lastIndexOf('};')
+      )}};${contentController}`;
+
+      await writeFileAsync(arquivoController, novoConteudoController);
 
       const arquivoPort = `src/ports/usecases/${rotaPai}/index.ts`;
+      const arquivoTypes = `src/usecases/${rotaPai}/types.ts`;
 
-      fs.readFile(arquivoPort, 'utf8', (err, portData) => {
-        console.log(portData);
+      let portData = await readFileAsync(arquivoPort);
 
-        // Encontrar a posição do export default
-        const posicaoLastItemPort = portData.indexOf('};');
+      // Encontrar a posição do export default
+      const posicaoLastItemPort = portData.indexOf('};');
 
-        if (posicaoLastItemPort === -1) {
-          console.error(
-            'Declaração "last item port" não encontrada no arquivo.'
-          );
-          return;
+      if (posicaoLastItemPort === -1) {
+        console.error('Declaração "last item port" não encontrada no arquivo.');
+        return;
+      }
+
+      const ultimaPosicaoImportPort = portData.lastIndexOf('import');
+
+      const result = await readFileAsync(arquivoTypes);
+
+      if (!result && body) {
+        await writeFileAsync(
+          arquivoTypes,
+          `export interface ${useCaseName}Type${fieldDefinitions}`
+        );
+      }
+
+      const contentPort = `
+        ${
+          body
+            ? `import {${useCaseName}Type} from '@usecases/${rotaPai}/types'`
+            : ''
         }
-
-        const ultimaPosicaoImportPort = portData.lastIndexOf('import');
-
-        const contentPort = `
-        ${body ? `interface ${useCaseName}Type${fieldDefinitions}` : ''}
         export const ${useCaseName}Port = async ( ${
-          parameters.length > 0 ? `${lineParams}:${lineParamsType}` : ''
-        }  
+        parameters.length > 0 ? `${lineParams}:${lineParamsType}` : ''
+      }  
         ${body ? `data:${useCaseName}Type` : ''} 
         
         ) => {
   
             return await  ${useCaseName}UseCase( ${lineParams}${
-          body ? 'data' : ''
-        });
+        body ? 'data' : ''
+      });
         };
   
         `;
 
-        const testePort =
-          portData.slice(0, ultimaPosicaoImportPort) +
-          `import { ${extractStringImport(
-            portData,
-            `@usecases/${rotaPai}`
-          )} ${useCaseName}UseCase } from '@usecases/${rotaPai}';`;
+      const testePort =
+        portData.slice(0, ultimaPosicaoImportPort) +
+        `import { ${extractStringImport(
+          portData,
+          `@usecases/${rotaPai}`
+        )} ${useCaseName}UseCase } from '@usecases/${rotaPai}';`;
 
-        portData =
-          testePort +
-          '\n' +
-          portData.substring(portData.indexOf('export'), portData.length);
-        const novoConteudoPort = `${portData.substring(
-          0,
-          portData.lastIndexOf('};')
-        )}};${contentPort}`;
+      portData =
+        testePort +
+        '\n' +
+        portData.substring(portData.indexOf('export'), portData.length);
+      const novoConteudoPort = `${portData.substring(
+        0,
+        portData.lastIndexOf('};')
+      )}};${contentPort}`;
 
-        fs.writeFile(arquivoPort, novoConteudoPort, 'utf8', (err) => {
-          if (err) {
-            console.error(`Erro ao escrever no arquivo ${arquivoPort}: ${err}`);
-          } else {
-            console.log(
-              `Conteúdo adicionado com sucesso ao arquivo ${arquivoPort}.`
-            );
-          }
-        });
-      });
+      await writeFileAsync(arquivoPort, novoConteudoPort);
 
       const arquivoUseCase = `src/usecases/${rotaPai}/index.ts`;
 
-      fs.readFile(arquivoUseCase, 'utf8', (err, useCaseData) => {
-        console.log(useCaseData);
+      let useCaseData = await readFileAsync(arquivoUseCase);
 
-        // Encontrar a posição do export default
-        const posicaoLastItemUseCase = useCaseData.indexOf('};');
+      // Encontrar a posição do export default
+      const posicaoLastItemUseCase = useCaseData.indexOf('};');
 
-        if (posicaoLastItemUseCase === -1) {
-          console.error(
-            'Declaração "last item use case" não encontrada no arquivo.'
-          );
-          return;
-        }
+      if (posicaoLastItemUseCase === -1) {
+        console.error(
+          'Declaração "last item use case" não encontrada no arquivo.'
+        );
+        return;
+      }
 
-        const contentUseCase = `
-        ${body ? `interface ${useCaseName}Type${fieldDefinitions}` : ''}
+      const resultTypes = await readFileAsync(arquivoTypes);
+
+      let strImport = '';
+
+      if (body && resultTypes) {
+        strImport = `import {${useCaseName}Type} from '@usecases/${rotaPai}/types'`;
+      }
+      const contentUseCase = `
+        ${strImport} 
         export const ${useCaseName}UseCase = async (${
-          parameters.length > 0 ? `${lineParams}:${lineParamsType}` : ''
-        }
+        parameters.length > 0 ? `${lineParams}:${lineParamsType}` : ''
+      }
         ${body ? `data:${useCaseName}Type` : ''} 
 
          ) => {
@@ -428,27 +414,17 @@ program
   
         `;
 
-        useCaseData = useCaseData.substring(
-          useCaseData.indexOf('export'),
-          useCaseData.length
-        );
-        const novoConteudoUseCase = `${useCaseData.substring(
-          0,
-          useCaseData.lastIndexOf('};')
-        )}};${contentUseCase}`;
+      useCaseData = useCaseData.substring(
+        useCaseData.indexOf('export'),
+        useCaseData.length
+      );
+      const novoConteudoUseCase = `${useCaseData.substring(
+        0,
+        useCaseData.lastIndexOf('};')
+      )}};${contentUseCase}`;
 
-        fs.writeFile(arquivoUseCase, novoConteudoUseCase, 'utf8', (err) => {
-          if (err) {
-            console.error(
-              `Erro ao escrever no arquivo ${arquivoUseCase}: ${err}`
-            );
-          } else {
-            console.log(
-              `Conteúdo adicionado com sucesso ao arquivo ${arquivoUseCase}.`
-            );
-          }
-        });
-      });
+      await writeFileAsync(arquivoUseCase, novoConteudoUseCase);
+
       return false;
     }
 
@@ -552,6 +528,8 @@ program
       `;
 
       fs.writeFileSync(path.join(usecaseDirNew, `index.ts`), usecaseContent);
+
+      fs.writeFileSync(path.join(usecaseDirNew, `types.ts`), '');
 
       const repoContent = `
       import { BaseRepo } from '@providers/db';
